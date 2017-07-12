@@ -25,11 +25,19 @@ int main(int argc, char** argv)
         return 0;
     }
 
-    for (int i = 0; i < std::stoi(argv[1]); ++i)
+    try
     {
-        Notification notif;
-        notif.mem = "woohoo_" + std::to_string(i);
-        noti::Notify(notif);
+        const int num = std::stoi(argv[1]);
+        for (int i = 0; i < num; ++i)
+        {
+            Notification notif;
+            notif.mem = "woohoo_" + std::to_string(i);
+            noti::Notify(notif);
+        }
+    }
+    catch(const std::invalid_argument& i_invalid)
+    {
+        std::cerr << "invalid argument " << i_invalid.what() << std::endl;
     }
 
     return 0;
