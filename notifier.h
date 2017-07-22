@@ -82,7 +82,7 @@ class Cage
     friend Subscription<notif_t>;
     friend Pigeon<notif_t>;
 
-public:
+private:
     static Cage& GetInstance()
     {
         static Cage cage;
@@ -105,14 +105,12 @@ public:
             (*static_cast<const Subscription<notif_t>*>(p_subscription))(i_notification);
     }
 
-private:
     void Remove(ISubscription* ip_subscription)
     {
         std::lock_guard<std::mutex> lock(m_mtx);
         m_subscriptions.erase(ip_subscription);
     }
 
-private:
     Cage() = default;
     Cage(const Cage&) = delete;
     Cage(Cage&&) = delete;
