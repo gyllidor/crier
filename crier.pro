@@ -6,4 +6,7 @@ CONFIG -= qt
 SOURCES += main.cpp
 
 HEADERS += \
-    notifier.h
+    notifier.h \
+    pigeon.h
+
+LIBS += -pthread

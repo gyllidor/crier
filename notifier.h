@@ -1,119 +1,128 @@
 #ifndef NOTIFIER_H
 #define NOTIFIER_H
 
-#include <functional>
-#include <map>
 #include <memory>
-#include <vector>
-#include <type_traits>
+#include <set>
+#include <mutex>
 
-namespace noti
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+template<typename TNotif>
+class Pigeon;
+
+//----------------------------------------------------------------------------------------------------------------------
+namespace notifier
 {
-    class IWraphandler
+struct ISubscription
+{
+    virtual ~ISubscription() = 0;
+};
+
+inline ISubscription::~ISubscription() {}
+
+//----------------------------------------------------------------------------------------------------------------------
+template <typename TNotif>
+struct Cage;
+
+//----------------------------------------------------------------------------------------------------------------------
+template <typename TNotif>
+struct Typo
+{
+    using notifi_t = typename std::decay<TNotif>::type;
+    using const_ref_notif_t = const notifi_t&;
+    using const_ref_handler_t = const std::function<void(const notifi_t&)>&;
+    using const_handler_t = const std::function<void(const notifi_t&)>;
+};
+
+//----------------------------------------------------------------------------------------------------------------------
+template <typename TNotif>
+class Subscription : public ISubscription
+{
+    using notif_t = typename Typo<TNotif>::notifi_t;
+    using const_ref_notif_t = typename Typo<TNotif>::const_ref_notif_t;
+    using handler_t = typename Typo<TNotif>::const_ref_handler_t;
+
+    friend class Cage<notif_t>;
+
+public:
+    Subscription(handler_t i_handler)
+        : m_handler(i_handler)
     {
-    public:
-        virtual ~IWraphandler() = 0;
-    };
-
-    inline IWraphandler::~IWraphandler() {}
-
-    template <typename TNotif>
-    class WrapHandler : public IWraphandler
-    {
-        using type = typename std::decay<TNotif>::type;
-
-    public:
-        WrapHandler() = default;
-        WrapHandler(const std::function<void(const type&)>& i_notif_handler)
-            : m_notif_handler(i_notif_handler)
-        {
-        }
-
-        void Do(const type& i_notification)
-        {
-            m_notif_handler(i_notification);
-        }
-
-    private:
-        const std::function<void(const type&)> m_notif_handler;
-    };
-
-    template <typename TNotif>
-    class NotifHandlerContainer;
-
-    template <typename TNotif>
-    class Subscription
-    {
-        using type = typename std::decay<TNotif>::type;
-
-    public:
-        Subscription() = default;
-        ~Subscription()
-        {
-            NotifHandlerContainer<type>::GetInstance().RemoveSubscriber(this);
-        }
-    };
-
-    template <typename TNotif>
-    class NotifHandlerContainer
-    {
-        using type = typename std::decay<TNotif>::type;
-
-        friend Subscription<type>;
-
-    public:
-        using subscription_t = Subscription<type>;
-
-    public:
-        static NotifHandlerContainer& GetInstance()
-        {
-            static NotifHandlerContainer noti;
-            return noti;
-        }
-
-        std::unique_ptr<subscription_t> Subscribe(const std::function<void(const type&)>& i_notif_handler)
-        {
-            auto p_subscription = std::make_unique<subscription_t>();
-            m_handlers[p_subscription.get()] = std::make_unique<WrapHandler<type>>(i_notif_handler);
-            return p_subscription;
-        }
-
-        void Notify(const type& i_notification)
-        {
-            for (const auto& pair : m_handlers)
-            {
-                static_cast<WrapHandler<type>*>(pair.second.get())->Do(i_notification);
-            }
-        }
-
-    private:
-        void RemoveSubscriber(subscription_t* ip_notif_handler)
-        {
-            m_handlers.erase(ip_notif_handler);
-        }
-
-    private:
-        NotifHandlerContainer() = default;
-        NotifHandlerContainer(const NotifHandlerContainer&) = delete;
-        NotifHandlerContainer(NotifHandlerContainer&&) = delete;
-        const NotifHandlerContainer& operator =(const NotifHandlerContainer&) = delete;
-        const NotifHandlerContainer& operator =(NotifHandlerContainer&&) = delete;
-
-    private:
-        std::map<subscription_t*, std::unique_ptr<IWraphandler>> m_handlers;
-    };
-
-    template <typename TNotif>
-    auto Subscribe(const std::function<void(const TNotif&)>& i_notif_handler) -> std::unique_ptr<Subscription<TNotif>>
-    {
-        return NotifHandlerContainer<TNotif>::GetInstance().Subscribe(i_notif_handler);
     }
 
-    template <typename TNotif>
-    void Notify(const TNotif& i_notif)
+    ~Subscription()
     {
-        NotifHandlerContainer<TNotif>::GetInstance().Notify(i_notif);
+        Cage<notif_t>::GetInstance().Remove(this);
     }
-}
+
+private:
+    void operator()(const_ref_notif_t i_notification) const
+    {
+        m_handler(i_notification);
+    }
+
+private:
+    Subscription() = delete;
+    Subscription(const Subscription&) = delete;
+    Subscription(Subscription&&) = delete;
+    const Subscription& operator=(const Subscription&) = delete;
+    const Subscription& operator=(Subscription&&) = delete;
+
+private:
+    const std::function<void(const_ref_notif_t)> m_handler;
+};
+
+//----------------------------------------------------------------------------------------------------------------------
+template <typename TNotif>
+class Cage
+{
+    using notif_t = typename Typo<TNotif>::notifi_t;
+    using const_ref_notif_t = typename Typo<TNotif>::const_ref_notif_t;
+    using const_ref_handler_t = typename Typo<TNotif>::const_ref_handler_t;
+
+    friend Subscription<notif_t>;
+    friend Pigeon<notif_t>;
+
+public:
+    static Cage& GetInstance()
+    {
+        static Cage cage;
+        return cage;
+    }
+
+    std::unique_ptr<ISubscription> Subscribe(const_ref_handler_t i_handler)
+    {
+        auto p_subscription = std::make_unique<Subscription<notif_t>>(i_handler);
+
+        std::lock_guard<std::mutex> lock(m_mtx);
+        m_subscriptions.insert(p_subscription.get());
+        return p_subscription;
+    }
+
+    void Notify(const_ref_notif_t i_notification)
+    {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        for (auto* p_subscription : m_subscriptions)
+            (*static_cast<const Subscription<notif_t>*>(p_subscription))(i_notification);
+    }
+
+private:
+    void Remove(ISubscription* ip_subscription)
+    {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        m_subscriptions.erase(ip_subscription);
+    }
+
+private:
+    Cage() = default;
+    Cage(const Cage&) = delete;
+    Cage(Cage&&) = delete;
+    const Cage& operator=(const Cage&) = delete;
+    const Cage& operator=(Cage&&) = delete;
+
+private:
+    std::set<const ISubscription*> m_subscriptions;
+    std::mutex m_mtx;
+};
+} // namespace notifier
 
 #endif // NOTIFIER_H
