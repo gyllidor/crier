@@ -51,7 +51,7 @@ int main(int argc, char** argv)
         std::cerr << "invalid argument " << i_invalid.what() << std::endl;
     }
 
-    std::thread thread([argv, count]()
+    std::thread thread([&p_sub, argv, count]()
     {
         const int num = std::stoi(count);
         for (int i = 0; i < num; ++i)
@@ -60,6 +60,10 @@ int main(int argc, char** argv)
             notif.mem = "pewpew_" + std::to_string(i);
             notif.mem.append("\n");
             Pigeon<Notif>::Notify(notif);
+            if (i % 2)
+                p_sub->Mute();
+            else
+                p_sub->UnMute();
         }
     });
 

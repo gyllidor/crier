@@ -4,6 +4,7 @@
 #include <memory>
 #include <set>
 #include <mutex>
+#include <atomic>
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 template<typename TNotif>
@@ -15,6 +16,9 @@ namespace notifier
 struct ISubscription
 {
     virtual ~ISubscription() = 0;
+    virtual void Mute() = 0;
+    virtual void UnMute() = 0;
+    virtual bool IsMuted() const = 0;
 };
 
 inline ISubscription::~ISubscription() {}
@@ -46,12 +50,28 @@ class Subscription : public ISubscription
 public:
     Subscription(handler_t i_handler)
         : m_handler(i_handler)
+        , m_mute(false)
     {
     }
 
     ~Subscription()
     {
         Cage<notif_t>::GetInstance().Remove(this);
+    }
+
+    void Mute() override
+    {
+        m_mute = true;
+    }
+
+    void UnMute() override
+    {
+        m_mute = false;
+    }
+
+    bool IsMuted() const override
+    {
+        return m_mute;
     }
 
 private:
@@ -69,6 +89,7 @@ private:
 
 private:
     const std::function<void(const_ref_notif_t)> m_handler;
+    std::atomic<bool> m_mute;
 };
 
 //----------------------------------------------------------------------------------------------------------------------
@@ -101,8 +122,9 @@ private:
     void Notify(const_ref_notif_t i_notification)
     {
         std::lock_guard<std::mutex> lock(m_mtx);
-        for (auto* p_subscription : m_subscriptions)
-            (*static_cast<const Subscription<notif_t>*>(p_subscription))(i_notification);
+        for (auto p_subscription : m_subscriptions)
+            if (!p_subscription->IsMuted())
+                (*static_cast<const Subscription<notif_t>*>(p_subscription))(i_notification);
     }
 
     void Remove(ISubscription* ip_subscription)
